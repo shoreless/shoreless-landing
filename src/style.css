@@ -1,0 +1,9 @@
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: #000; /* or a dreamy gradient */
+}
+canvas {
+  display: block;
+}
