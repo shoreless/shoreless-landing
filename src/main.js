@@ -105,7 +105,7 @@ const createKanjiSprite = (char, color) => {
   return sprite;
 };
 
-const kanjiList = ['夢', '無', '波', '空', '心', '光', '静', '幻', '海']; // Add more if desired
+const kanjiList = ['夢', '考', '思', '引', '心', '光', '本']; // Add more if desired
 
 for (let i = 0; i < particleCount; i++) {
   const color = ukiyoPalette[Math.floor(Math.random() * ukiyoPalette.length)];
