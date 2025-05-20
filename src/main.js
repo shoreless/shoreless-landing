@@ -8,40 +8,7 @@ let isHoveringText = false;
 
 // === Scene Setup ===
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#e6d3a3');
-
-// Create background gradient
-const vertexShader = `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const fragmentShader = `
-  varying vec2 vUv;
-  void main() {
-    vec2 center = vec2(0.5, 0.5);
-    float dist = length(vUv - center);
-    vec3 baseColor = vec3(0.9, 0.83, 0.64); // #e6d3a3
-    vec3 pinkColor = vec3(0.98, 0.9, 0.9); // Very light pink
-    float strength = smoothstep(0.0, 0.7, dist);
-    vec3 finalColor = mix(baseColor, pinkColor, strength * 0.3);
-    gl_FragColor = vec4(finalColor, 1.0);
-  }
-`;
-
-const backgroundMaterial = new THREE.ShaderMaterial({
-  vertexShader,
-  fragmentShader,
-  transparent: true
-});
-
-const backgroundGeometry = new THREE.PlaneGeometry(40, 40);
-const background = new THREE.Mesh(backgroundGeometry, backgroundMaterial);
-background.position.z = -10;
-scene.add(background);
+scene.background = new THREE.Color('#6e4b2a'); // Solid dark brown background
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
 camera.position.z = 20;
@@ -115,7 +82,7 @@ function createKanjiSprite(kanji, color, index) {
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    opacity: 0.5
+    opacity: 0.32 // Lower alpha for kanji sprites
   });
   
   const sprite = new THREE.Sprite(material);
@@ -171,7 +138,7 @@ function createSakuraPetal(index) {
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    opacity: 0.4,
+    opacity: 0.25, // Lower alpha for more subtle effect
     depthWrite: false
   });
   
@@ -199,7 +166,8 @@ function createSakuraPetal(index) {
     rotationSpeed: 0.2 + Math.random() * 0.3, // More rotation
     size: size,
     edgeAttraction: Math.random() * 0.02, // Random edge attraction strength
-    edgePhase: Math.random() * Math.PI * 2 // Random edge attraction phase
+    edgePhase: Math.random() * Math.PI * 2, // Random edge attraction phase
+    startTime: 0 // Per-petal time offset for falling
   };
 
   return sprite;
@@ -208,34 +176,61 @@ function createSakuraPetal(index) {
 // === Create Shoreless Text ===
 function createShorelessText() {
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
+  canvas.width = 1024;
+  canvas.height = 256;
   const ctx = canvas.getContext('2d');
   
   // Clear background
-  ctx.fillStyle = 'transparent';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  
-  // Draw text with glow
-  ctx.shadowColor = 'rgba(61, 44, 30, 0.3)'; // Subtle glow color
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 0;
-  ctx.fillStyle = '#3d2c1e';
-  ctx.font = 'bold 80px Montserrat';
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 25% smaller font size
+  const fontSize = 135; // 180 * 0.75
+
+  // Draw huge bright white blurred halo
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,255,255,1)';
+  ctx.shadowBlur = 96;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${fontSize}px Montserrat`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('shoreless', canvas.width/2, canvas.height/2);
-  
+  ctx.restore();
+
+  // Draw subtle dark shadow for extra contrast
+  ctx.save();
+  ctx.shadowColor = 'rgba(30,20,10,0.45)';
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${fontSize}px Montserrat`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('shoreless', canvas.width/2, canvas.height/2);
+  ctx.restore();
+
+  // Draw sharp white text on top
+  ctx.save();
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${fontSize}px Montserrat`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('shoreless', canvas.width/2, canvas.height/2);
+  ctx.restore();
+
   const texture = new THREE.CanvasTexture(canvas);
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    opacity: 0.8
+    opacity: 1.0
   });
   
+  // 25% smaller scale
+  const scaleX = 16 * 0.75;
+  const scaleY = 4 * 0.75;
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(8, 2, 1);
+  sprite.scale.set(scaleX, scaleY, 1);
   sprite.position.set(0, 0, 0);
   
   // Store original values for hover effect
@@ -244,8 +239,8 @@ function createShorelessText() {
   sprite.userData.originalOpacity = material.opacity;
   sprite.userData.targetScale = sprite.scale.clone();
   sprite.userData.targetOpacity = material.opacity;
-  sprite.userData.targetGlow = 0;
-  sprite.userData.currentGlow = 0;
+  sprite.userData.targetGlow = 96;
+  sprite.userData.currentGlow = 96;
   
   return sprite;
 }
@@ -255,6 +250,19 @@ const particles = [];
 const sakuraParticles = [];
 const kanjiList = ['夢', '考', '思', '引', '心', '光', '本'];
 const colors = ['#b48a56', '#a05a2c', '#6e4b2a', '#b0a98f', '#3d2c1e'];
+
+// --- Randomize kanji assignment ---
+const totalSprites = 50;
+let kanjiPool = [];
+while (kanjiPool.length < totalSprites) {
+  kanjiPool = kanjiPool.concat(kanjiList);
+}
+kanjiPool = kanjiPool.slice(0, totalSprites);
+// Fisher-Yates shuffle
+for (let i = kanjiPool.length - 1; i > 0; i--) {
+  const j = Math.floor(Math.random() * (i + 1));
+  [kanjiPool[i], kanjiPool[j]] = [kanjiPool[j], kanjiPool[i]];
+}
 
 // Add shoreless text to the center
 const shorelessText = createShorelessText();
@@ -267,11 +275,22 @@ for (let i = 0; i < 30; i++) {
   sakuraParticles.push(petal);
 }
 
-// Create kanji sprites
-for (let i = 0; i < 50; i++) {
-  const kanji = kanjiList[Math.floor(Math.random() * kanjiList.length)];
+// Create kanji sprites with shuffled kanji
+for (let i = 0; i < totalSprites; i++) {
+  const kanji = kanjiPool[i];
   const color = colors[Math.floor(Math.random() * colors.length)];
+  // Diffuse cloud: random angle and radius
+  const angle = Math.random() * Math.PI * 2;
+  const radius = 4 + Math.random() * 8; // Radius from 4 to 12
+  const x = Math.cos(angle) * radius + (Math.random() - 0.5) * 2; // Add a little extra jitter
+  const y = Math.sin(angle) * radius + (Math.random() - 0.5) * 2;
+  const z = (Math.random() - 0.5) * 6; // More diffuse in Z
   const sprite = createKanjiSprite(kanji, color, i);
+  sprite.position.set(x, y, z);
+  // Update base positions for animation
+  sprite.userData.baseX = x;
+  sprite.userData.baseY = y;
+  sprite.userData.baseZ = z;
   scene.add(sprite);
   particles.push(sprite);
 }
@@ -292,27 +311,50 @@ function animate(time) {
     // Smooth glow transition
     shorelessText.userData.currentGlow += (shorelessText.userData.targetGlow - shorelessText.userData.currentGlow) * 0.05;
     
-    // Update glow effect
+    // Update glow effect with correct large font and effects
     const ctx = shorelessText.material.map.image.getContext('2d');
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.shadowColor = 'rgba(61, 44, 30, 0.3)';
+    // 25% smaller font size for redraw
+    const fontSize = 135;
+    // Draw huge bright white blurred halo
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,255,255,1)';
     ctx.shadowBlur = shorelessText.userData.currentGlow;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.fillStyle = '#3d2c1e';
-    ctx.font = 'bold 80px Montserrat';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${fontSize}px Montserrat`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('shoreless', ctx.canvas.width/2, ctx.canvas.height/2);
+    ctx.restore();
+    // Draw subtle dark shadow for extra contrast
+    ctx.save();
+    ctx.shadowColor = 'rgba(30,20,10,0.45)';
+    ctx.shadowBlur = 16;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${fontSize}px Montserrat`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('shoreless', ctx.canvas.width/2, ctx.canvas.height/2);
+    ctx.restore();
+    // Draw sharp white text on top
+    ctx.save();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${fontSize}px Montserrat`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('shoreless', ctx.canvas.width/2, ctx.canvas.height/2);
+    ctx.restore();
     shorelessText.material.map.needsUpdate = true;
   }
 
   // Animate sakura petals
   sakuraParticles.forEach((petal, index) => {
-    const { baseX, baseY, baseZ, fallSpeed, driftSpeed, driftPhase, rotationSpeed, size, edgeAttraction, edgePhase } = petal.userData;
+    const { baseX, baseY, baseZ, fallSpeed, driftSpeed, driftPhase, rotationSpeed, size, edgeAttraction, edgePhase, startTime } = petal.userData;
     
-    // Falling motion with diagonal drift
-    let targetY = baseY - t * fallSpeed;
+    // Falling motion with diagonal drift, using per-petal startTime
+    let targetY = baseY - (t - startTime) * fallSpeed;
     
     // Enhanced horizontal drift
     const driftX = Math.sin(t * driftSpeed + driftPhase) * 1.2; // Increased amplitude
@@ -332,6 +374,9 @@ function animate(time) {
       targetX = (Math.random() - 0.5) * 20; // Start from a narrower range
       petal.userData.baseX = targetX;
       petal.userData.baseY = targetY;
+      petal.userData.startTime = t; // Reset the fall timer
+      petal.position.x = targetX; // Instantly move to new position
+      petal.position.y = targetY;
     }
     
     // Update position with smoother interpolation
